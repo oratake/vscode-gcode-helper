@@ -35,6 +35,23 @@
     "typescript": "^5.4.0"
   },
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "gcodeHelper",
+          "title": "G-code Helper",
+          "icon": "media/gcode.svg"
+        }
+      ]
+    },
+    "views": {
+      "gcodeHelper": [
+        {
+          "id": "gcodeHelper.sequences",
+          "name": "シーケンス"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "gcodeHelper.toggleStickyHeader",
