@@ -2,10 +2,6 @@ import * as vscode from "vscode";
 import { extractSequences, type GcodeSettings, type Sequence } from "../core/sequence";
 import { findMinZ, type MinZResult } from "../core/zscan";
 
-function formatZ(v: number): string {
-  return `Z${v}`;
-}
-
 /** シーケンス木のエレメント。`sequence`（N ブロック）と `minZ`（その最低 Z）。 */
 class SequenceNode {
   constructor(
@@ -43,7 +39,7 @@ export class SequenceTreeProvider implements vscode.TreeDataProvider<SequenceNod
     if (node.kind === "sequence") {
       const it = new vscode.TreeItem(`N${node.seq.n}`);
       const range = `行 ${node.seq.startLine + 1}–${node.seq.endLine + 1}`;
-      it.description = node.minZ ? `${range} · 最低${formatZ(node.minZ.value)}` : range;
+      it.description = node.minZ ? `${range} · 最低${node.minZ.raw}` : range;
       it.collapsibleState = node.minZ
         ? vscode.TreeItemCollapsibleState.Collapsed
         : vscode.TreeItemCollapsibleState.None;
@@ -54,7 +50,7 @@ export class SequenceTreeProvider implements vscode.TreeDataProvider<SequenceNod
       };
       return it;
     }
-    const it = new vscode.TreeItem(`最低${formatZ(node.minZ!.value)}`);
+    const it = new vscode.TreeItem(`最低${node.minZ!.raw}`);
     it.description = `行 ${node.minZ!.line + 1}`;
     it.collapsibleState = vscode.TreeItemCollapsibleState.None;
     it.command = {
