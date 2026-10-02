@@ -18,7 +18,8 @@
   ],
   "main": "./dist/extension.js",
   "activationEvents": [
-    "onLanguage:gcode"
+    "onStartupFinished",
+    "onCommand:gcodeHelper.toggleStickyHeader"
   ],
   "scripts": {
     "compile": "node esbuild.mjs",
@@ -34,29 +35,6 @@
     "typescript": "^5.4.0"
   },
   "contributes": {
-    "languages": [
-      {
-        "id": "gcode",
-        "extensions": [
-          ".nc",
-          ".gcode",
-          ".ngc",
-          ".tap"
-        ],
-        "aliases": [
-          "G-Code",
-          "gcode"
-        ],
-        "configuration": "./src/language/language-configuration.json"
-      }
-    ],
-    "grammars": [
-      {
-        "language": "gcode",
-        "scopeName": "source.gcode",
-        "path": "./src/language/gcode.tmLanguage.json"
-      }
-    ],
     "commands": [
       {
         "command": "gcodeHelper.toggleStickyHeader",
@@ -70,6 +48,16 @@
           "type": "boolean",
           "default": true,
           "description": "シーケンス先頭行（Nコード）をスティッキーヘッダーとしてビューポート上部に固定表示する"
+        },
+        "gcodeHelper.stickyHeader.languages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "gcode"
+          ],
+          "description": "スティッキーヘッダーを有効にする言語 ID のリスト。既存の G-code ハイライト拡張（例: ML.nc-gcode）の言語 ID を加えると、その拡張で色付きのファイルにもヘッダーを付ける"
         },
         "gcodeHelper.showAllConsecutiveComments": {
           "type": "boolean",

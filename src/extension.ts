@@ -11,16 +11,16 @@ export function activate(context: vscode.ExtensionContext): void {
   let providerDisposable: vscode.Disposable | undefined;
 
   const syncProvider = (): void => {
-    const enabled = vscode.workspace
-      .getConfiguration("gcodeHelper")
-      .get<boolean>("stickyHeader.enabled", true);
-    if (enabled && !providerDisposable) {
+    const cfg = vscode.workspace.getConfiguration("gcodeHelper");
+    const enabled = cfg.get<boolean>("stickyHeader.enabled", true);
+    const languages = cfg.get<string[]>("stickyHeader.languages", ["gcode"]);
+    if (enabled && languages.length > 0 && !providerDisposable) {
       providerDisposable = vscode.languages.registerDocumentSymbolProvider(
-        { language: "gcode" },
+        languages.map((l) => ({ language: l })),
         createSequenceSymbolProvider(),
       );
       context.subscriptions.push(providerDisposable);
-    } else if (!enabled && providerDisposable) {
+    } else if ((!enabled || languages.length === 0) && providerDisposable) {
       providerDisposable.dispose();
       providerDisposable = undefined;
     }
