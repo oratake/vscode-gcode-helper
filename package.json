@@ -1,0 +1,70 @@
+{
+  "name": "vscode-gcode-helper",
+  "displayName": "G-code Helper",
+  "description": "マシニングセンタの G-code（FANUC 系 / Autodesk Fusion 向け）を VSCode で便利に編集する拡張機能",
+  "version": "0.0.1",
+  "publisher": "oratake",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/oratake/vscode-gcode-helper.git"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:gcodeHelper.toggleStickyHeader"
+  ],
+  "scripts": {
+    "compile": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "build": "node esbuild.mjs --production",
+    "test": "node esbuild.mjs && node --test 'dist/test/**/*.test.js'",
+    "vscode:prepublish": "node esbuild.mjs --production"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "1.85.0",
+    "esbuild": "^0.21.0",
+    "typescript": "^5.4.0"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "gcodeHelper.toggleStickyHeader",
+        "title": "G-code: スティッキーヘッダー切替"
+      }
+    ],
+    "configuration": {
+      "title": "G-code Helper",
+      "properties": {
+        "gcodeHelper.stickyHeader.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "シーケンス先頭行（Nコード）をスティッキーヘッダーとしてビューポート上部に固定表示する"
+        },
+        "gcodeHelper.stickyHeader.languages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "gcode"
+          ],
+          "description": "スティッキーヘッダーを有効にする言語 ID のリスト。既存の G-code ハイライト拡張（例: ML.nc-gcode）の言語 ID を加えると、その拡張で色付きのファイルにもヘッダーを付ける"
+        },
+        "gcodeHelper.showAllConsecutiveComments": {
+          "type": "boolean",
+          "default": false,
+          "description": "連続するコメント行を全て表示する（off の場合は 1 行にまとめる）"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,28 @@
+%
+O1000 (SAMPLE PART)
+; this file is for manual testing of the sticky header
+; open it in VS Code with the extension (F5) and scroll
+
+N10 (SETUP T1 END MILL) G28 G91
+N20 G90 G54 G00 X0 Y0
+N30 G43 H1 Z5. M6 T1
+; rapid down
+; then cut
+N40 G01 Z-2. F100
+N50 G01 X50. F200
+N60 G01 Y25.
+N70 G01 X0.
+N80 G01 Y0.
+N90 (RAISE) G00 Z5.
+
+N110 (DRILL T2) G43 H2 Z5. M6 T2
+N120 G81 X10. Y10. Z-5. R2. F50
+N130 G81 X20. Y10. Z-5. R2. F50
+N140 G80
+
+N200 (FINISH) G00 Z5.
+N210 M5
+N220 G28 G91
+N230 G90 G28
+N999 M30
+%
