@@ -1,22 +1,35 @@
 import * as vscode from "vscode";
 import { createSequenceSymbolProvider } from "./ui/symbols";
-import { SequenceTreeProvider } from "./ui/sidebar";
+import { SequenceTreeProvider, ModalTreeProvider } from "./ui/sidebar";
+import {
+  computeModalSegments,
+  stateAtLine,
+  getMachine,
+  type ModalSegment,
+} from "./core/modal";
 
 export function activate(context: vscode.ExtensionContext): void {
-  // --- 専用サイドバー: Activity Bar「G-code Helper」 + シーケンス TreeView ---
+  // --- 専用サイドバー: Activity Bar「G-code Helper」 + シーケンス / モーダル TreeView ---
   const treeProvider = new SequenceTreeProvider();
-  // ViewContainer「G-code Helper」は package.json の contributes で宣言済み。
-  // ランタイムでは View の id に TreeView を紐付けるだけ。
+  const modalProvider = new ModalTreeProvider();
   const treeView = vscode.window.createTreeView("gcodeHelper.sequences", {
     treeDataProvider: treeProvider,
   });
+  const modalView = vscode.window.createTreeView("gcodeHelper.modal", {
+    treeDataProvider: modalProvider,
+  });
+
+  const languagesOf = (): string[] =>
+    vscode.workspace.getConfiguration("gcodeHelper").get<string[]>("stickyHeader.languages", [
+      "gcode",
+    ]);
 
   const syncTree = (): void => {
-    const cfg = vscode.workspace.getConfiguration("gcodeHelper");
-    const languages = cfg.get<string[]>("stickyHeader.languages", ["gcode"]);
     const editor = vscode.window.activeTextEditor;
-    if (editor && languages.includes(editor.document.languageId)) {
-      const showAll = cfg.get<boolean>("showAllConsecutiveComments", false);
+    const showAll = vscode.workspace
+      .getConfiguration("gcodeHelper")
+      .get<boolean>("showAllConsecutiveComments", false);
+    if (editor && languagesOf().includes(editor.document.languageId)) {
       treeProvider.refresh(editor.document.getText().split(/\r?\n/), {
         showAllConsecutiveComments: showAll,
       });
@@ -25,12 +38,39 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   };
 
+  // --- モーダル管理（機能6）: カーソル位置の状態表示 ---
+  // セグメント（状態変化点のみ）は編集時のみ再計算（O(n)）。カーソル移動はキャッシュ参照（軽量）。
+  let segments: ModalSegment[] = [];
+
+  const updateModal = (): void => {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      modalProvider.setState(null);
+      return;
+    }
+    modalProvider.setState(stateAtLine(segments, editor.selection.active.line));
+  };
+
+  const recomputeModal = (): void => {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || !languagesOf().includes(editor.document.languageId)) {
+      segments = [];
+      modalProvider.setState(null);
+      return;
+    }
+    const machine = getMachine(
+      vscode.workspace.getConfiguration("gcodeHelper").get<string>("machine", "fanuc"),
+    );
+    segments = computeModalSegments(editor.document.getText().split(/\r?\n/), machine);
+    updateModal();
+  };
+
   // --- スティッキーヘッダー（機能1）: DocumentSymbol → ネイティブ sticky scroll ---
   let providerDisposable: vscode.Disposable | undefined;
   const syncProvider = (): void => {
     const cfg = vscode.workspace.getConfiguration("gcodeHelper");
     const enabled = cfg.get<boolean>("stickyHeader.enabled", true);
-    const languages = cfg.get<string[]>("stickyHeader.languages", ["gcode"]);
+    const languages = languagesOf();
     if (enabled && languages.length > 0 && !providerDisposable) {
       providerDisposable = vscode.languages.registerDocumentSymbolProvider(
         languages.map((l) => ({ language: l })),
@@ -43,31 +83,38 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   };
 
+  const syncAll = (): void => {
+    syncTree();
+    recomputeModal();
+  };
+
   // 重量ファイルで打ち込み毎に再計算すると重くなるため、編集のみデバウンスする。
   let timer: ReturnType<typeof setTimeout> | undefined;
   const scheduleSync = (): void => {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = undefined;
-      syncTree();
+      syncAll();
     }, 150);
   };
 
   const onConfig = vscode.workspace.onDidChangeConfiguration((e) => {
     if (e.affectsConfiguration("gcodeHelper")) {
       syncProvider();
-      syncTree();
+      syncAll();
     }
   });
 
   syncProvider();
-  syncTree();
+  syncAll();
 
   context.subscriptions.push(
     treeView,
+    modalView,
     onConfig,
-    vscode.window.onDidChangeActiveTextEditor(() => syncTree()),
+    vscode.window.onDidChangeActiveTextEditor(() => syncAll()),
     vscode.workspace.onDidChangeTextDocument(scheduleSync),
+    vscode.window.onDidChangeTextEditorSelection(() => updateModal()),
     vscode.commands.registerCommand("gcodeHelper.toggleStickyHeader", () => {
       const cfg = vscode.workspace.getConfiguration("gcodeHelper");
       const current = cfg.get<boolean>("stickyHeader.enabled", true);
