@@ -2,7 +2,7 @@
   "name": "vscode-gcode-helper",
   "displayName": "G-code Helper",
   "description": "マシニングセンタの G-code（FANUC 系 / Autodesk Fusion 向け）を VSCode で便利に編集する拡張機能",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "publisher": "oratake",
   "license": "MIT",
   "repository": {
@@ -88,10 +88,12 @@
         "gcodeHelper.machine": {
           "type": "string",
           "enum": [
-            "fanuc"
+            "fanuc",
+            "okuma"
           ],
           "enumLabels": [
-            "FANUC 系"
+            "FANUC 系",
+            "OKUMA 系"
           ],
           "default": "fanuc",
           "description": "G-code の機械系（モーダル認識ルール）。現在は FANUC 系のみ"

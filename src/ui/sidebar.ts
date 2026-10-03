@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { extractSequences, type GcodeSettings, type Sequence } from "../core/sequence";
 import { findMinZ, type MinZResult } from "../core/zscan";
-import { GROUPS, emptyState, type ModalGroup, type ModalState } from "../core/modal";
+import { GROUPS, displayValue, emptyState, type ModalGroup, type ModalState } from "../core/modal";
 
 /** シーケンス木のエレメント。`sequence`（N ブロック）と `minZ`（その最低 Z）。 */
 class SequenceNode {
@@ -85,7 +85,7 @@ export class ModalTreeProvider implements vscode.TreeDataProvider<ModalGroup> {
   getTreeItem(key: ModalGroup): vscode.TreeItem {
     const def = GROUPS.find((g) => g.key === key)!;
     const it = new vscode.TreeItem(def.label);
-    it.description = this.state[key] ?? "—";
+    it.description = displayValue(this.state, key) || "—";
     it.collapsibleState = vscode.TreeItemCollapsibleState.None;
     return it;
   }
