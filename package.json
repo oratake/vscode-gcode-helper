@@ -2,7 +2,7 @@
   "name": "vscode-gcode-helper",
   "displayName": "G-code Helper",
   "description": "マシニングセンタの G-code（FANUC 系 / Autodesk Fusion 向け）を VSCode で便利に編集する拡張機能",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "publisher": "oratake",
   "license": "MIT",
   "repository": {

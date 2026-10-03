@@ -103,6 +103,39 @@ export function activate(context: vscode.ExtensionContext): void {
     }, 150);
   };
 
+  // languageId が対象言語になる瞬間の専用イベントは VSCode API に存在しない
+  // （言語の自動検出は非同期）。ファイルを開いた/フォーカスした直後は数 tick 掛けて
+  // languageId を再確認し、対象言語に変わった瞬間に同期する（ticks 回で打ち切り）。
+  let recheckTimer: ReturnType<typeof setTimeout> | undefined;
+  const armRecheck = (): void => {
+    if (recheckTimer) clearTimeout(recheckTimer);
+    let ticks = 6; // 6 × 200ms = 1.2s
+    const tick = (): void => {
+      if (ticks-- <= 0) {
+        recheckTimer = undefined;
+        return;
+      }
+      recheckTimer = setTimeout(() => {
+        const editor = vscode.window.activeTextEditor;
+        if (editor && languagesOf().includes(editor.document.languageId)) {
+          recheckTimer = undefined;
+          syncAll();
+        } else {
+          tick();
+        }
+      }, 200);
+    };
+    tick();
+  };
+
+  // エディタ開/フォーカス時：言語が確定していれば即同期、未確定なら捕捉待ち
+  const beginSync = (): void => {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) return;
+    if (languagesOf().includes(editor.document.languageId)) syncAll();
+    else armRecheck();
+  };
+
   const onConfig = vscode.workspace.onDidChangeConfiguration((e) => {
     if (e.affectsConfiguration("gcodeHelper")) {
       syncProvider();
@@ -117,7 +150,8 @@ export function activate(context: vscode.ExtensionContext): void {
     treeView,
     modalView,
     onConfig,
-    vscode.window.onDidChangeActiveTextEditor(() => syncAll()),
+    vscode.window.onDidChangeActiveTextEditor(beginSync),
+    vscode.workspace.onDidOpenTextDocument(beginSync),
     vscode.workspace.onDidChangeTextDocument(scheduleSync),
     vscode.window.onDidChangeTextEditorSelection(() => updateModal()),
     vscode.commands.registerCommand("gcodeHelper.toggleStickyHeader", () => {
