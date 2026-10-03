@@ -6,6 +6,7 @@ import {
   stateAtLine,
   emptyState,
   displayValue,
+  normCode,
 } from "../../src/core/modal";
 
 const fanuc = MACHINES.fanuc;
@@ -153,4 +154,40 @@ test("displayValue: 通常キーはそのまま", () => {
   st.motion = "G01";
   assert.equal(displayValue(st, "motion"), "G01");
   assert.equal(displayValue(st, "f"), "");
+});
+
+// --- 正規化テスト ---
+
+test("normCode: 先頭ゼロ除去", () => {
+  assert.equal(normCode("03"), 3);
+  assert.equal(normCode("08"), 8);
+  assert.equal(normCode("00"), 0);
+  assert.equal(normCode("43"), 43);
+  assert.equal(normCode("43.1"), 43.1);
+  assert.equal(normCode("990"), 990);
+});
+
+test("recognize: G08P1 / G05P10000（先頭ゼロ）→ 高精度制御", () => {
+  assert.equal(fanuc.recognize("G08P1")?.precision, "G8 P1");
+  assert.equal(fanuc.recognize("G05P10000")?.precision, "G5 P10000");
+});
+
+test("recognize: G1（1 桁）→ G01 に正規化", () => {
+  const u = fanuc.recognize("G1 X100");
+  assert.equal(u?.motion, "G01");
+});
+
+test("recognize: G001（3 桁）→ G01 に正規化", () => {
+  const u = fanuc.recognize("G001 X100");
+  assert.equal(u?.motion, "G01");
+});
+
+test("recognize: G2（1 桁）→ G02, G3 → G03", () => {
+  assert.equal(fanuc.recognize("G2 X100 Y100")?.motion, "G02");
+  assert.equal(fanuc.recognize("G3 X100 Y100 R5")?.motion, "G03");
+});
+
+test("recognize: M4 / M5（1 桁）→ 主軸", () => {
+  assert.equal(fanuc.recognize("M4")?.spindle, "M4");
+  assert.equal(fanuc.recognize("M5")?.spindle, "M5");
 });

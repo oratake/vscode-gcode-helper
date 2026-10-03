@@ -85,11 +85,49 @@ export interface MachineProfile {
   id: string;
   label: string;
   recognize: (line: string) => Partial<ModalState> | null;
-  /** M コード（文字列キー）→ 取消対象グループ。例: { "660": ["toolLength", "spindle"] } */
+  /** M コード（正規化数値の文字列キー）→ 取消対象グループ。例: { "660": ["toolLength", "spindle"] } */
   cancels?: Record<string, ModalGroup[]>;
 }
 
-// --- 取消マクロテーブル ---
+/** G/M コードの数字部分を正規化（先頭ゼロ除去）: "03" → 3, "08" → 8, "43.1" → 43.1 */
+export function normCode(raw: string): number {
+  return parseFloat(raw);
+}
+
+/** G コード dispatch: 正規化番号 → (グループ, 正規化表示値)。 */
+const G_DISPATCH: Record<number, { g: ModalGroup; v: string }> = {
+  0: { g: "motion", v: "G00" },
+  1: { g: "motion", v: "G01" },
+  2: { g: "motion", v: "G02" },
+  3: { g: "motion", v: "G03" },
+  17: { g: "plane", v: "G17" },
+  18: { g: "plane", v: "G18" },
+  19: { g: "plane", v: "G19" },
+  20: { g: "units", v: "G20" },
+  21: { g: "units", v: "G21" },
+  41: { g: "cutterComp", v: "G41" },
+  42: { g: "cutterComp", v: "G42" },
+  43: { g: "toolLength", v: "G43" },
+  54: { g: "workOffset", v: "G54" },
+  55: { g: "workOffset", v: "G55" },
+  56: { g: "workOffset", v: "G56" },
+  57: { g: "workOffset", v: "G57" },
+  58: { g: "workOffset", v: "G58" },
+  59: { g: "workOffset", v: "G59" },
+  90: { g: "distance", v: "G90" },
+  91: { g: "distance", v: "G91" },
+};
+
+/** M コード dispatch: 正規化番号 → (グループ, 正規化表示値)。 */
+const M_DISPATCH: Record<number, { g: ModalGroup; v: string }> = {
+  3: { g: "spindle", v: "M3" },
+  4: { g: "spindle", v: "M4" },
+  5: { g: "spindle", v: "M5" },
+  8: { g: "coolant", v: "M8" },
+  9: { g: "coolant", v: "M9" },
+};
+
+// --- 取消マクロテーブル（正規化数値の文字列キー） ---
 const FANUC_CANCELS: Record<string, ModalGroup[]> = {
   "660": ["toolLength", "toolLengthH", "spindle", "coolant"],
 };
@@ -104,43 +142,42 @@ const makeRecognize =
     const s = stripComment(line);
     if (!s.trim()) return null;
     const u: Partial<ModalState> = {};
-    let m: RegExpMatchArray | null;
 
-    if ((m = s.match(/(?<![A-Za-z])G(00|01|02|03)(?!\d)/i))) u.motion = `G${m[1]}`;
-    if ((m = s.match(/(?<![A-Za-z])G(17|18|19)(?!\d)/i))) u.plane = `G${m[1]}`;
-    if ((m = s.match(/(?<![A-Za-z])G(20|21)(?!\d)/i))) u.units = `G${m[1]}`;
-    if ((m = s.match(/(?<![A-Za-z])G(90|91)(?!\d)/i))) u.distance = `G${m[1]}`;
-
-    if ((m = s.match(/(?<![A-Za-z])G(40|41|42)(?!\d)/i))) {
-      u.cutterComp = `G${m[1]}`;
-      if (m[1] === "40") u.cutterCompD = null;
+    for (const mm of s.matchAll(/(?<![A-Za-z])G(\d+(?:\.\d+)?)(?!\d)/gi)) {
+      const raw = mm[1];
+      if (raw.includes(".")) {
+        const n = normCode(raw);
+        if (n >= 43 && n < 44) u.toolLength = `G${raw}`;
+        continue;
+      }
+      const n = normCode(raw);
+      if (n === 49) { u.toolLength = null; u.toolLengthH = null; continue; }
+      if (n === 40) { u.cutterComp = "G40"; u.cutterCompD = null; continue; }
+      const d = G_DISPATCH[n];
+      if (d) u[d.g] = d.v;
     }
-    if ((m = s.match(/(?<![A-Za-z])D(\d+(?:\.\d+)?)(?!\d)/i))) u.cutterCompD = m[1];
 
-    if ((m = s.match(/(?<![A-Za-z])G(43(\.\d+)?)(?!\d)/i))) u.toolLength = `G${m[1]}`;
-    if ((m = s.match(/(?<![A-Za-z])G49(?!\d)/i))) {
-      u.toolLength = null;
-      u.toolLengthH = null;
-    }
-    if ((m = s.match(/(?<![A-Za-z])H(\d+(?:\.\d+)?)(?!\d)/i))) u.toolLengthH = m[1];
+    const dm = s.match(/(?<![A-Za-z])D(\d+(?:\.\d+)?)(?!\d)/i);
+    if (dm) u.cutterCompD = dm[1];
+    const hm = s.match(/(?<![A-Za-z])H(\d+(?:\.\d+)?)(?!\d)/i);
+    if (hm) u.toolLengthH = hm[1];
 
-    if ((m = s.match(/(?<![A-Za-z])G(54|55|56|57|58|59)(?!\d)/i))) u.workOffset = `G${m[1]}`;
-    if ((m = s.match(/(?<![A-Za-z])S([+-]?\d+(?:\.\d+)?)/i))) u.s = m[1];
-    if ((m = s.match(/(?<![A-Za-z])F([+-]?\d+(?:\.\d+)?)/i))) u.f = m[1];
-    if ((m = s.match(/(?<![A-Za-z])T(\d+(?:\.\d+)?)/i))) u.t = m[1];
+    const sm = s.match(/(?<![A-Za-z])S([+-]?\d+(?:\.\d+)?)/i);
+    if (sm) u.s = sm[1];
+    const fm = s.match(/(?<![A-Za-z])F([+-]?\d+(?:\.\d+)?)/i);
+    if (fm) u.f = fm[1];
+    const tm = s.match(/(?<![A-Za-z])T(\d+(?:\.\d+)?)/i);
+    if (tm) u.t = tm[1];
 
     for (const mm of s.matchAll(/(?<![A-Za-z])M(\d{1,4})(?!\d)/gi)) {
-      const code = parseInt(mm[1], 10);
-      if (code === 3) u.spindle = "M3";
-      else if (code === 4) u.spindle = "M4";
-      else if (code === 5) u.spindle = "M5";
-      else if (code === 8) u.coolant = "M8";
-      else if (code === 9) u.coolant = "M9";
-      const cl = cancels?.[mm[1]];
+      const code = normCode(mm[1]);
+      const d = M_DISPATCH[code];
+      if (d) u[d.g] = d.v;
+      const cl = cancels?.[String(code)];
       if (cl) for (const g of cl) (u as Record<string, string | null>)[g] = null;
     }
 
-    for (const mm of s.matchAll(/(?<![A-Za-z])G(8|5)P(\d+(?:\.\d*)?)/gi))
+    for (const mm of s.matchAll(/(?<![A-Za-z])G0?(8|5)P(\d+(?:\.\d*)?)/gi))
       u.precision = `G${mm[1]} P${mm[2]}`;
     for (const mm of s.matchAll(/(?<![A-Za-z])G990Q(\d+(?:\.\d*)?)/gi))
       u.precision = `G990 Q${mm[1]}`;
