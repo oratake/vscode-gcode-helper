@@ -191,3 +191,52 @@ test("recognize: M4 / M5（1 桁）→ 主軸", () => {
   assert.equal(fanuc.recognize("M4")?.spindle, "M4");
   assert.equal(fanuc.recognize("M5")?.spindle, "M5");
 });
+
+// --- OKUMA プロファイル ---
+
+test("OKUMA: G56 + H → 工具長補正", () => {
+  const u = okuma.recognize("G56 H5");
+  assert.equal(u?.toolLength, "G56");
+  assert.equal(u?.toolLengthH, "5");
+});
+
+test("OKUMA: G15 H1 → ワーク原点（G+H 複合）", () => {
+  const u = okuma.recognize("G15 H1");
+  assert.equal(u?.workOffset, "G15");
+  assert.equal(u?.workOffsetH, "1");
+});
+
+test("OKUMA: G43 は無視（FANUC 専用）", () => {
+  assert.equal(okuma.recognize("G43"), null);
+});
+
+test("OKUMA: G54-G59 は無視（FANUC ワーク原点）", () => {
+  assert.equal(okuma.recognize("G54"), null);
+  assert.equal(okuma.recognize("G55"), null);
+  assert.equal(okuma.recognize("G57"), null);
+});
+
+test("OKUMA: G1 + G43 → G43 無視、G01 のみ", () => {
+  const u = okuma.recognize("G1 X100 G43");
+  assert.equal(u?.motion, "G01");
+  assert.equal(u?.toolLength, undefined);
+});
+
+test("OKUMA: M206 → 工具長補正を取消", () => {
+  const u = okuma.recognize("M206");
+  assert.equal(u?.toolLength, null);
+  assert.equal(u?.toolLengthH, null);
+});
+
+test("displayValue: OKUMA workOffset → 'G15 H1'", () => {
+  const st = emptyState();
+  st.workOffset = "G15";
+  st.workOffsetH = "1";
+  assert.equal(displayValue(st, "workOffset"), "G15 H1");
+});
+
+test("displayValue: FANUC workOffset → 'G54'（H なし）", () => {
+  const st = emptyState();
+  st.workOffset = "G54";
+  assert.equal(displayValue(st, "workOffset"), "G54");
+});

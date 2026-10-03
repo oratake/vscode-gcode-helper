@@ -96,7 +96,7 @@
             "OKUMA 系"
           ],
           "default": "fanuc",
-          "description": "G-code の機械系（モーダル認識ルール）。現在は FANUC 系のみ"
+          "description": "G-code の機械系（モーダル認識ルール）。FANUC 系: G43/G54-G59, OKUMA 系: G56/G15"
         }
       }
     }

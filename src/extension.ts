@@ -5,6 +5,7 @@ import {
   computeModalSegments,
   stateAtLine,
   getMachine,
+  MACHINES,
   type ModalSegment,
 } from "./core/modal";
 
@@ -53,14 +54,14 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const recomputeModal = (): void => {
     const editor = vscode.window.activeTextEditor;
+    const machineId = vscode.workspace.getConfiguration("gcodeHelper").get<string>("machine", "fanuc");
+    const machine = getMachine(machineId);
+    modalProvider.setMachine(machine.label);
     if (!editor || !languagesOf().includes(editor.document.languageId)) {
       segments = [];
       modalProvider.setState(null);
       return;
     }
-    const machine = getMachine(
-      vscode.workspace.getConfiguration("gcodeHelper").get<string>("machine", "fanuc"),
-    );
     segments = computeModalSegments(editor.document.getText().split(/\r?\n/), machine);
     updateModal();
   };
@@ -169,6 +170,20 @@ export function activate(context: vscode.ExtensionContext): void {
         new vscode.Range(pos, pos),
         vscode.TextEditorRevealType.InCenterIfOutsideViewport,
       );
+    }),
+    vscode.commands.registerCommand("gcodeHelper.selectMachine", async () => {
+      const current = vscode.workspace.getConfiguration("gcodeHelper").get<string>("machine", "fanuc");
+      const picked = await vscode.window.showQuickPick(
+        Object.entries(MACHINES).map(([id, m]) => ({
+          label: m.label,
+          description: id === current ? "current" : undefined,
+          id,
+        })),
+        { placeHolder: "機械を選択" },
+      );
+      if (picked) {
+        await vscode.workspace.getConfiguration("gcodeHelper").update("machine", picked.id, true);
+      }
     }),
   );
 }

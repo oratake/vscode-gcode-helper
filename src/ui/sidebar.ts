@@ -63,29 +63,45 @@ export class SequenceTreeProvider implements vscode.TreeDataProvider<SequenceNod
   }
 }
 
+type ModalRow = "machine" | ModalGroup;
+
 /**
  * カーソル位置のモーダル状態を表示する TreeView（機能6・A案）。
- * 全グループ行を常時表示し、値は VSCode が自動で薄く表示する description に載せる。
+ * 最上行に機械選択（クリックで QuickPick）、以下全グループ行を常時表示。
  * 未認識のグループは "—"（空枠）。
  */
-export class ModalTreeProvider implements vscode.TreeDataProvider<ModalGroup> {
-  private _onDidChange = new vscode.EventEmitter<ModalGroup | undefined>();
+export class ModalTreeProvider implements vscode.TreeDataProvider<ModalRow> {
+  private _onDidChange = new vscode.EventEmitter<ModalRow | undefined>();
   readonly onDidChangeTreeData = this._onDidChange.event;
   private state: ModalState = emptyState();
+  private machineLabel = "FANUC 系";
+
+  setMachine(label: string): void {
+    if (this.machineLabel !== label) {
+      this.machineLabel = label;
+      this._onDidChange.fire(undefined);
+    }
+  }
 
   setState(state: ModalState | null): void {
     this.state = state ?? emptyState();
     this._onDidChange.fire(undefined);
   }
 
-  getChildren(): ModalGroup[] {
-    return GROUPS.map((g) => g.key);
+  getChildren(): ModalRow[] {
+    return ["machine", ...GROUPS.map((g) => g.key)];
   }
 
-  getTreeItem(key: ModalGroup): vscode.TreeItem {
-    const def = GROUPS.find((g) => g.key === key)!;
+  getTreeItem(row: ModalRow): vscode.TreeItem {
+    if (row === "machine") {
+      const it = new vscode.TreeItem(`機械  ${this.machineLabel}`);
+      it.collapsibleState = vscode.TreeItemCollapsibleState.None;
+      it.command = { command: "gcodeHelper.selectMachine", title: "機械を選択" };
+      return it;
+    }
+    const def = GROUPS.find((g) => g.key === row)!;
     const it = new vscode.TreeItem(def.label);
-    it.description = displayValue(this.state, key) || "—";
+    it.description = displayValue(this.state, row) || "—";
     it.collapsibleState = vscode.TreeItemCollapsibleState.None;
     return it;
   }

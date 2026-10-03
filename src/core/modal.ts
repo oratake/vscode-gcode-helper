@@ -15,12 +15,14 @@ export interface ModalState {
   cutterComp: string | null;
   /** 工具径補償 D（例 "21"） */
   cutterCompD: string | null;
-  /** 工具長補償 G43/43.1/49 */
+  /** 工具長補償 G43(FANUC) / G56(OKUMA) */
   toolLength: string | null;
   /** 工具長補償 H（例 "13"） */
   toolLengthH: string | null;
-  /** ワーク原点 G54〜G59 */
+  /** ワーク原点 G54〜(FANUC) / G15(OKUMA) */
   workOffset: string | null;
+  /** ワーク原点 H（OKUMA G15 H1、FANUC では常に null） */
+  workOffsetH: string | null;
   /** 回転数 S（例 "1000"） */
   s: string | null;
   /** 送り速度 F（例 "150"） */
@@ -58,7 +60,7 @@ export const GROUPS: { key: ModalGroup; label: string }[] = [
 const STATE_KEYS: (keyof ModalState)[] = [
   "motion", "plane", "units", "distance",
   "cutterComp", "cutterCompD", "toolLength", "toolLengthH",
-  "workOffset", "s", "f", "t", "spindle", "coolant", "precision",
+  "workOffset", "workOffsetH", "s", "f", "t", "spindle", "coolant", "precision",
 ];
 
 /** 全グループ null の初期状態（何も認識される前の「空」）。デフォルト値は持たない。 */
@@ -67,7 +69,8 @@ export function emptyState(): ModalState {
     motion: null, plane: null, units: null, distance: null,
     cutterComp: null, cutterCompD: null,
     toolLength: null, toolLengthH: null,
-    workOffset: null, s: null, f: null, t: null,
+    workOffset: null, workOffsetH: null,
+    s: null, f: null, t: null,
     spindle: null, coolant: null, precision: null,
   };
 }
@@ -89,13 +92,16 @@ export interface MachineProfile {
   cancels?: Record<string, ModalGroup[]>;
 }
 
+/** G コード dispatch エントリ。h: この G の H 番号がどのフィールドに属するか。 */
+type GDispatchEntry = { g: ModalGroup; v: string; h?: "tool" | "work" };
+
 /** G/M コードの数字部分を正規化（先頭ゼロ除去）: "03" → 3, "08" → 8, "43.1" → 43.1 */
 export function normCode(raw: string): number {
   return parseFloat(raw);
 }
 
-/** G コード dispatch: 正規化番号 → (グループ, 正規化表示値)。 */
-const G_DISPATCH: Record<number, { g: ModalGroup; v: string }> = {
+// --- FANUC G_DISPATCH: G43=工具長, G54-G59=ワーク原点 ---
+const FANUC_G_DISPATCH: Record<number, GDispatchEntry> = {
   0: { g: "motion", v: "G00" },
   1: { g: "motion", v: "G01" },
   2: { g: "motion", v: "G02" },
@@ -107,7 +113,7 @@ const G_DISPATCH: Record<number, { g: ModalGroup; v: string }> = {
   21: { g: "units", v: "G21" },
   41: { g: "cutterComp", v: "G41" },
   42: { g: "cutterComp", v: "G42" },
-  43: { g: "toolLength", v: "G43" },
+  43: { g: "toolLength", v: "G43", h: "tool" },
   54: { g: "workOffset", v: "G54" },
   55: { g: "workOffset", v: "G55" },
   56: { g: "workOffset", v: "G56" },
@@ -118,7 +124,26 @@ const G_DISPATCH: Record<number, { g: ModalGroup; v: string }> = {
   91: { g: "distance", v: "G91" },
 };
 
-/** M コード dispatch: 正規化番号 → (グループ, 正規化表示値)。 */
+// --- OKUMA G_DISPATCH: G56=工具長, G15=ワーク原点（G43/G54-G59 は無視） ---
+const OKUMA_G_DISPATCH: Record<number, GDispatchEntry> = {
+  0: { g: "motion", v: "G00" },
+  1: { g: "motion", v: "G01" },
+  2: { g: "motion", v: "G02" },
+  3: { g: "motion", v: "G03" },
+  15: { g: "workOffset", v: "G15", h: "work" },
+  17: { g: "plane", v: "G17" },
+  18: { g: "plane", v: "G18" },
+  19: { g: "plane", v: "G19" },
+  20: { g: "units", v: "G20" },
+  21: { g: "units", v: "G21" },
+  41: { g: "cutterComp", v: "G41" },
+  42: { g: "cutterComp", v: "G42" },
+  56: { g: "toolLength", v: "G56", h: "tool" },
+  90: { g: "distance", v: "G90" },
+  91: { g: "distance", v: "G91" },
+};
+
+/** M コード dispatch: 正規化番号 → (グループ, 正規化表示値)。両機械共通。 */
 const M_DISPATCH: Record<number, { g: ModalGroup; v: string }> = {
   3: { g: "spindle", v: "M3" },
   4: { g: "spindle", v: "M4" },
@@ -135,38 +160,43 @@ const OKUMA_CANCELS: Record<string, ModalGroup[]> = {
   "206": ["toolLength", "toolLengthH"],
 };
 
-// --- 共通認識子（FANUC / OKUMA で同一の G/M/S/F/T ルール、取消テーブルのみ差異） ---
+// --- 認識子: 機械ごとの G_DISPATCH + 取消テーブルで構築 ---
 const makeRecognize =
-  (cancels: Record<string, ModalGroup[]> | undefined) =>
+  (cancels: Record<string, ModalGroup[]> | undefined, gDispatch: Record<number, GDispatchEntry>) =>
   (line: string): Partial<ModalState> | null => {
     const s = stripComment(line);
     if (!s.trim()) return null;
     const u: Partial<ModalState> = {};
 
+    let hField: "toolLengthH" | "workOffsetH" = "toolLengthH";
+
     for (const mm of s.matchAll(/(?<![A-Za-z])G(\d+(?:\.\d+)?)(?!\d)/gi)) {
       const raw = mm[1];
       if (raw.includes(".")) {
         const n = normCode(raw);
-        if (n >= 43 && n < 44) u.toolLength = `G${raw}`;
+        if (n >= 43 && n < 44) { u.toolLength = `G${raw}`; hField = "toolLengthH"; }
         continue;
       }
       const n = normCode(raw);
       if (n === 49) { u.toolLength = null; u.toolLengthH = null; continue; }
       if (n === 40) { u.cutterComp = "G40"; u.cutterCompD = null; continue; }
-      const d = G_DISPATCH[n];
-      if (d) u[d.g] = d.v;
+      const d = gDispatch[n];
+      if (d) {
+        u[d.g] = d.v;
+        if (d.h) hField = d.h === "tool" ? "toolLengthH" : "workOffsetH";
+      }
     }
 
     const dm = s.match(/(?<![A-Za-z])D(\d+(?:\.\d+)?)(?!\d)/i);
     if (dm) u.cutterCompD = dm[1];
     const hm = s.match(/(?<![A-Za-z])H(\d+(?:\.\d+)?)(?!\d)/i);
-    if (hm) u.toolLengthH = hm[1];
+    if (hm) u[hField] = hm[1];
 
     const sm = s.match(/(?<![A-Za-z])S([+-]?\d+(?:\.\d+)?)/i);
     if (sm) u.s = sm[1];
     const fm = s.match(/(?<![A-Za-z])F([+-]?\d+(?:\.\d+)?)/i);
     if (fm) u.f = fm[1];
-    const tm = s.match(/(?<![A-Za-z])T(\d+(?:\.\d+)?)/i);
+    const tm = s.match(/(?<![A-Za-z])T(\d+(?:\.\d+)?)(?!\d)/i);
     if (tm) u.t = tm[1];
 
     for (const mm of s.matchAll(/(?<![A-Za-z])M(\d{1,4})(?!\d)/gi)) {
@@ -189,14 +219,14 @@ const FANUC: MachineProfile = {
   id: "fanuc",
   label: "FANUC 系",
   cancels: FANUC_CANCELS,
-  recognize: makeRecognize(FANUC_CANCELS),
+  recognize: makeRecognize(FANUC_CANCELS, FANUC_G_DISPATCH),
 };
 
 const OKUMA: MachineProfile = {
   id: "okuma",
   label: "OKUMA 系",
   cancels: OKUMA_CANCELS,
-  recognize: makeRecognize(OKUMA_CANCELS),
+  recognize: makeRecognize(OKUMA_CANCELS, OKUMA_G_DISPATCH),
 };
 
 /** 利用可能な機械。 */
@@ -252,7 +282,7 @@ export function stateAtLine(segments: ModalSegment[], line: number): ModalState 
 }
 
 /**
- * 表示値を返す。toolLength / cutterComp は補助フィールド（H / D）を組み合わせる。
+ * 表示値を返す。toolLength / cutterComp / workOffset は補助フィールド（H / D）を組み合わせる。
  * 空文字列 = 未認識（UI 側が "—" に変換）。
  */
 export function displayValue(state: ModalState, key: ModalGroup): string {
@@ -269,6 +299,13 @@ export function displayValue(state: ModalState, key: ModalGroup): string {
     if (!g && !d) return "";
     if (!g) return `D${d}`;
     return d ? `${g} D${d}` : g;
+  }
+  if (key === "workOffset") {
+    const g = state.workOffset;
+    const h = state.workOffsetH;
+    if (!g && !h) return "";
+    if (!g) return `H${h}`;
+    return h ? `${g} H${h}` : g;
   }
   return state[key] ?? "";
 }
