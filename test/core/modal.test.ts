@@ -191,3 +191,110 @@ test("recognize: M4 / M5（1 桁）→ 主軸", () => {
   assert.equal(fanuc.recognize("M4")?.spindle, "M4");
   assert.equal(fanuc.recognize("M5")?.spindle, "M5");
 });
+
+// --- OKUMA プロファイル ---
+
+test("OKUMA: G56 + H → 工具長補正", () => {
+  const u = okuma.recognize("G56 H5");
+  assert.equal(u?.toolLength, "G56");
+  assert.equal(u?.toolLengthH, "5");
+});
+
+test("OKUMA: G15 H1 → ワーク原点（G+H 複合）", () => {
+  const u = okuma.recognize("G15 H1");
+  assert.equal(u?.workOffset, "G15");
+  assert.equal(u?.workOffsetH, "1");
+});
+
+test("OKUMA: G43 は無視（FANUC 専用）", () => {
+  assert.equal(okuma.recognize("G43"), null);
+});
+
+test("OKUMA: G54-G59 は無視（FANUC ワーク原点）", () => {
+  assert.equal(okuma.recognize("G54"), null);
+  assert.equal(okuma.recognize("G55"), null);
+  assert.equal(okuma.recognize("G57"), null);
+});
+
+test("OKUMA: G1 + G43 → G43 無視、G01 のみ", () => {
+  const u = okuma.recognize("G1 X100 G43");
+  assert.equal(u?.motion, "G01");
+  assert.equal(u?.toolLength, undefined);
+});
+
+test("OKUMA: M206 → 工具長補正を取消", () => {
+  const u = okuma.recognize("M206");
+  assert.equal(u?.toolLength, null);
+  assert.equal(u?.toolLengthH, null);
+});
+
+test("displayValue: OKUMA workOffset → 'G15 H1'", () => {
+  const st = emptyState();
+  st.workOffset = "G15";
+  st.workOffsetH = "1";
+  assert.equal(displayValue(st, "workOffset"), "G15 H1");
+});
+
+test("displayValue: FANUC workOffset → 'G54'（H なし）", () => {
+  const st = emptyState();
+  st.workOffset = "G54";
+  assert.equal(displayValue(st, "workOffset"), "G54");
+});
+
+// --- 主軸工具 / 次工具（T / M06） ---
+
+test("T のみ（M06 なし）→ 次工具設定、主軸工具不変", () => {
+  const u = fanuc.recognize("T1");
+  assert.equal(u?.nextTool, "T1");
+  assert.equal(u?.spindleTool, undefined);
+});
+
+test("T + M06 同一行 → 主軸工具=T、次工具=null", () => {
+  const u = fanuc.recognize("T29 M06");
+  assert.equal(u?.spindleTool, "T29");
+  assert.equal(u?.nextTool, null);
+});
+
+test("M06 のみ（T 先行行）→ nextTool=null（spindleTool は segments で解決）", () => {
+  const u = fanuc.recognize("M06");
+  assert.equal(u?.nextTool, null);
+  assert.equal(u?.spindleTool, undefined);
+});
+
+test("computeSegments: T 先行 → M06 で主軸工具確定", () => {
+  const segs = computeModalSegments(["T1", "G01 X100", "M06", "G01 X200"], fanuc);
+  assert.equal(segs.length, 3);
+  assert.equal(segs[0].state.nextTool, "T1");
+  assert.equal(segs[0].state.spindleTool, null);
+  assert.equal(segs[1].state.nextTool, "T1");
+  assert.equal(segs[2].state.spindleTool, "T1");
+  assert.equal(segs[2].state.nextTool, null);
+  assert.equal(segs[2].endLine, 3);
+});
+
+test("computeSegments: T+M06 同一行 → 原子交換", () => {
+  const segs = computeModalSegments(["T29 M06", "G01", "T1", "G01"], fanuc);
+  assert.equal(segs[0].state.spindleTool, "T29");
+  assert.equal(segs[0].state.nextTool, null);
+  assert.equal(segs[2].state.nextTool, "T1");
+  assert.equal(segs[2].state.spindleTool, "T29");
+});
+
+test("computeSegments: 連続 T 先行 → 最後の T が有効", () => {
+  const segs = computeModalSegments(["T1", "T2", "M06"], fanuc);
+  assert.equal(segs[1].state.nextTool, "T2");
+  assert.equal(segs[2].state.spindleTool, "T2");
+  assert.equal(segs[2].state.nextTool, null);
+});
+
+test("displayValue: spindleTool / nextTool はそのまま", () => {
+  const st = emptyState();
+  st.spindleTool = "T29";
+  st.nextTool = "T1";
+  assert.equal(displayValue(st, "spindleTool"), "T29");
+  assert.equal(displayValue(st, "nextTool"), "T1");
+  st.spindleTool = null;
+  st.nextTool = null;
+  assert.equal(displayValue(st, "spindleTool"), "");
+  assert.equal(displayValue(st, "nextTool"), "");
+});
