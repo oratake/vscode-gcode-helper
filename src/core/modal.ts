@@ -27,8 +27,10 @@ export interface ModalState {
   s: string | null;
   /** 送り速度 F（例 "150"） */
   f: string | null;
-  /** 工具番号 T（例 "05"） */
-  t: string | null;
+  /** 主軸工具（例 "T29"）。M06 実行時点で確定。 */
+  spindleTool: string | null;
+  /** 次工具（例 "T1"）。T 先行司令で設定、M06 でクリア。 */
+  nextTool: string | null;
   /** 主軸回転 M3/M4/M5 */
   spindle: string | null;
   /** クーラント M8/M9 */
@@ -50,7 +52,8 @@ export const GROUPS: { key: ModalGroup; label: string }[] = [
   { key: "workOffset", label: "ワーク原点" },
   { key: "s", label: "S 回転数" },
   { key: "f", label: "F 送り速度" },
-  { key: "t", label: "T 工具番号" },
+  { key: "spindleTool", label: "主軸工具" },
+  { key: "nextTool", label: "次工具" },
   { key: "spindle", label: "主軸回転" },
   { key: "coolant", label: "クーラント" },
   { key: "precision", label: "高精度制御" },
@@ -60,7 +63,8 @@ export const GROUPS: { key: ModalGroup; label: string }[] = [
 const STATE_KEYS: (keyof ModalState)[] = [
   "motion", "plane", "units", "distance",
   "cutterComp", "cutterCompD", "toolLength", "toolLengthH",
-  "workOffset", "workOffsetH", "s", "f", "t", "spindle", "coolant", "precision",
+  "workOffset", "workOffsetH", "s", "f",
+  "spindleTool", "nextTool", "spindle", "coolant", "precision",
 ];
 
 /** 全グループ null の初期状態（何も認識される前の「空」）。デフォルト値は持たない。 */
@@ -70,7 +74,8 @@ export function emptyState(): ModalState {
     cutterComp: null, cutterCompD: null,
     toolLength: null, toolLengthH: null,
     workOffset: null, workOffsetH: null,
-    s: null, f: null, t: null,
+    s: null, f: null,
+    spindleTool: null, nextTool: null,
     spindle: null, coolant: null, precision: null,
   };
 }
@@ -143,7 +148,7 @@ const OKUMA_G_DISPATCH: Record<number, GDispatchEntry> = {
   91: { g: "distance", v: "G91" },
 };
 
-/** M コード dispatch: 正規化番号 → (グループ, 正規化表示値)。両機械共通。 */
+/** M コード dispatch: 正規化番号 → (グループ, 正規化表示値)。両機械共通。M06 は別処理。 */
 const M_DISPATCH: Record<number, { g: ModalGroup; v: string }> = {
   3: { g: "spindle", v: "M3" },
   4: { g: "spindle", v: "M4" },
@@ -169,6 +174,8 @@ const makeRecognize =
     const u: Partial<ModalState> = {};
 
     let hField: "toolLengthH" | "workOffsetH" = "toolLengthH";
+    let tOnLine = false;
+    let m06 = false;
 
     for (const mm of s.matchAll(/(?<![A-Za-z])G(\d+(?:\.\d+)?)(?!\d)/gi)) {
       const raw = mm[1];
@@ -197,14 +204,26 @@ const makeRecognize =
     const fm = s.match(/(?<![A-Za-z])F([+-]?\d+(?:\.\d+)?)/i);
     if (fm) u.f = fm[1];
     const tm = s.match(/(?<![A-Za-z])T(\d+(?:\.\d+)?)(?!\d)/i);
-    if (tm) u.t = tm[1];
+    if (tm) { u.nextTool = `T${tm[1]}`; tOnLine = true; }
 
     for (const mm of s.matchAll(/(?<![A-Za-z])M(\d{1,4})(?!\d)/gi)) {
       const code = normCode(mm[1]);
+      if (code === 6) { m06 = true; continue; }
       const d = M_DISPATCH[code];
       if (d) u[d.g] = d.v;
       const cl = cancels?.[String(code)];
       if (cl) for (const g of cl) (u as Record<string, string | null>)[g] = null;
+    }
+
+    // M06 解決: T と同一行なら原子実行（spindleTool=T, nextTool=null）、
+    // T が先行行のみなら nextTool=null のみ（spindleTool は computeModalSegments で解決）。
+    if (m06) {
+      if (tOnLine && u.nextTool) {
+        u.spindleTool = u.nextTool;
+        u.nextTool = null;
+      } else {
+        u.nextTool = null;
+      }
     }
 
     for (const mm of s.matchAll(/(?<![A-Za-z])G0?(8|5)P(\d+(?:\.\d*)?)/gi))
@@ -251,7 +270,14 @@ export function computeModalSegments(lines: string[], machine: MachineProfile): 
   let state: ModalState = emptyState();
   for (let i = 0; i < lines.length; i++) {
     const u = machine.recognize(lines[i]);
-    if (u) state = { ...state, ...u };
+    if (u) {
+      const prevNext = state.nextTool;
+      state = { ...state, ...u };
+      // M06 が T なしで来た場合: 先行 nextTool を主軸工具に確定
+      if (prevNext !== null && u.nextTool === null && u.spindleTool === undefined) {
+        state.spindleTool = prevNext;
+      }
+    }
     const last = segments[segments.length - 1];
     if (last && sameState(last.state, state)) {
       last.endLine = i;
