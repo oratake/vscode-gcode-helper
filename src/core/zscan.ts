@@ -1,7 +1,7 @@
 // core/ は vscode import をしない（単体テスト可能な根拠）。
 
 /** 行からコメント（`(...)` ブロック と `;...` 行末）を除去したコード部分。 */
-function stripComment(line: string): string {
+export function stripComment(line: string): string {
   const s = line.replace(/\([^)]*\)/g, "");
   const i = s.indexOf(";");
   return i >= 0 ? s.slice(0, i) : s;

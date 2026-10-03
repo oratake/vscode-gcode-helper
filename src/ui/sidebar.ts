@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { extractSequences, type GcodeSettings, type Sequence } from "../core/sequence";
 import { findMinZ, type MinZResult } from "../core/zscan";
+import { GROUPS, displayValue, emptyState, type ModalGroup, type ModalState } from "../core/modal";
 
 /** シーケンス木のエレメント。`sequence`（N ブロック）と `minZ`（その最低 Z）。 */
 class SequenceNode {
@@ -58,6 +59,34 @@ export class SequenceTreeProvider implements vscode.TreeDataProvider<SequenceNod
       title: "行へジャンプ",
       arguments: [node.minZ!.line + 1],
     };
+    return it;
+  }
+}
+
+/**
+ * カーソル位置のモーダル状態を表示する TreeView（機能6・A案）。
+ * 全グループ行を常時表示し、値は VSCode が自動で薄く表示する description に載せる。
+ * 未認識のグループは "—"（空枠）。
+ */
+export class ModalTreeProvider implements vscode.TreeDataProvider<ModalGroup> {
+  private _onDidChange = new vscode.EventEmitter<ModalGroup | undefined>();
+  readonly onDidChangeTreeData = this._onDidChange.event;
+  private state: ModalState = emptyState();
+
+  setState(state: ModalState | null): void {
+    this.state = state ?? emptyState();
+    this._onDidChange.fire(undefined);
+  }
+
+  getChildren(): ModalGroup[] {
+    return GROUPS.map((g) => g.key);
+  }
+
+  getTreeItem(key: ModalGroup): vscode.TreeItem {
+    const def = GROUPS.find((g) => g.key === key)!;
+    const it = new vscode.TreeItem(def.label);
+    it.description = displayValue(this.state, key) || "—";
+    it.collapsibleState = vscode.TreeItemCollapsibleState.None;
     return it;
   }
 }
