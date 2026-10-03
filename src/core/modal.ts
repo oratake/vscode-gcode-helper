@@ -33,12 +33,12 @@ export type ModalGroup = keyof ModalState;
 
 /** 表示するグループ（行ラベル・表示順）。*/
 export const GROUPS: { key: ModalGroup; label: string }[] = [
-  { key: "motion", label: "運動" },
+  { key: "motion", label: "早送/切削" },
   { key: "plane", label: "平面" },
   { key: "units", label: "単位" },
   { key: "distance", label: "絶対/相対" },
-  { key: "cutterComp", label: "工具径補償" },
-  { key: "toolLength", label: "工具長補償" },
+  { key: "cutterComp", label: "工具径補正" },
+  { key: "toolLength", label: "工具長補正" },
   { key: "workOffset", label: "ワーク原点" },
   { key: "s", label: "S 回転数" },
   { key: "f", label: "F 送り速度" },

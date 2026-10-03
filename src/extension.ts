@@ -85,7 +85,12 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const syncAll = (): void => {
     syncTree();
-    recomputeModal();
+    try {
+      recomputeModal();
+    } catch (err) {
+      // 新しい機能（モーダル）の例外で既存のシーケンス表示まで壊さないための隔離
+      console.error("[gcode-helper] modal recompute failed", err);
+    }
   };
 
   // 重量ファイルで打ち込み毎に再計算すると重くなるため、編集のみデバウンスする。
