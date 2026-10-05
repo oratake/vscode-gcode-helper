@@ -8,7 +8,7 @@
 
 ## 現状ステータス
 
-開発中です。機能1（スティッキーヘッダー）は実装済み（Issue #2 / PR #3）。以降の機能は個別 Issue 化し、仕様確定後に開発します。
+機能1（スティッキーヘッダー）・機能3（最低Z + サイドバー）・機能4（モーダル管理 FANUC/OKUMA + ATC 工具番号）は実装済み。機能2（工具情報表示）は検討中。
 
 ## 使うソフトとの連携
 
@@ -21,9 +21,9 @@
 | # | 機能 | 概要 | 状態 |
 |---|---|---|---|
 | 1 | スティッキーヘッダー | 現在の N コード先頭行をビューポート上部に固定表示（ネイティブ sticky scroll + DocumentSymbol） | 完了（Issue #2） |
-| 3 | 最低Z + 専用サイドバー | Activity Bar に専用のサイドバー「G-code Helper」を追加。シーケンス(N)を主軸に最低Z を子ノードで表示（クリックでジャンプ） | 仕様確定・開発中（Issue #4） |
+| 3 | 最低Z + 専用サイドバー | Activity Bar に「G-code Helper」を追加。シーケンス(N)を主軸に最低Z を子ノードで表示（クリックでジャンプ） | 完了（Issue #4） |
+| 4 | モーダル管理 | カーソル位置のモーダル状態（G90 / G54 / 工具径補正 / ATC 工具番号等）を表示。FANUC・OKUMA 対応、QuickPick で機械切替 | 完了（Issue #6, #8） |
 | 2 | 工具情報の表示 | Fusion から工具情報を取得しサイドに表示。成果物は JSON/YAML で機構と読込を分離（取得経路は要調査） | 検討中 |
-| 4 | モーダル管理 | カーソル位置のモーダル状態（G90 / G54 / 工具径補正等）を表示。ルールは設定駆動 | 検討中 |
 
 ## 開発の方向性
 
@@ -41,31 +41,59 @@
 - ヘッダーを付ける対象言語は設定 `gcodeHelper.stickyHeader.languages`（デフォルト `["gcode"]`）で指定します。ML の言語 ID `gcode` が既定で含まれるため、設定を変えなくても ML で色付きのファイルにヘッダーが付きます。
 - 他社 / 自前の G-code 拡張を使う場合は、そこの言語 ID をこの配列に追加してください。
 
-## 開発・デバッグ
+## ビルド・導入
 
-### 準備・ユニットテスト
+### 準備
 
-```
+```bash
 npm install
-npm run test
 ```
 
-`core` の抽出ロジック（N コード検出・シーケンス境界・5 万行の重量）を検証します。
+### ユニットテスト
 
-### UI（スティッキーヘッダー）の確認
+```bash
+npm test
+```
 
-本拡張は言語を提供しないため、クリーンな **Extension Development Host（F5）** には G-code 言語が存在せず、ヘッダーの表示確認には向きません。実際の併用を確認するには、本番 VSCode に `.vsix` を入れて見ます。
+`core` の抽出ロジック（N コード・シーケンス境界・モーダル認識・最低Z）を検証します。
 
-1. `npm run build`
-2. `npx @vscode/vsce package`（`vscode-gcode-helper-0.0.1.vsix` が生成される）
-3. 本番 VSCode（ML.nc-gcode が入っているウィンドウ）で、拡張機能の ⚙ →「VSIX からインストール...」で上記 `.vsix` を入れ、ウィンドウを再読み込み。
-4. G-code ファイル（`.nc` 等）を開く:
-   - ML のハイライトが有効なまま、現在の N コード先頭行がビューポート上部に固定表示される。
-   - ⌘⇧P → `G-code: スティッキーヘッダー切替`、または `gcodeHelper.stickyHeader.enabled` で on/off。
+### .vsix パッケージの生成
 
-### F5（開発ホスト）で確認できること
+```bash
+npm run build
+npx @vscode/vsce package
+```
 
-F5（実行とデバッグ → **Run Extension**）は拡張のロード・コマンド登録の確認に使えます（左下に G-code Helper、コマンドパレットに切替コマンドが出ること）。ヘッダー本体の表示確認は上記の `.vsix` 経由が確実です。
+カレントディレクトリに `vscode-gcode-helper-0.0.x.vsix` が生成されます。
+
+### VSCode に導入する
+
+1. 本番 VSCode で **⌘⇧P → `Extensions: Install from VSIX...`**（または拡張機能パレット右上の `...` → 「VSIX からインストール...」）
+2. 生成した `.vsix` を選択 → **ウィンドウを再読み込み**
+3. G-code ファイル（`.nc` 等）を開く
+
+### 確認できること
+
+G-code ファイルを開いた時点で、以下の機能が動作します:
+
+- **スティッキーヘッダー**: 現在の N コード先頭行がビューポート上部に固定表示
+- **最低Z**: サイドバー「G-code Helper」→「シーケンス」に各 N ブロックの最低Z（クリックでジャンプ）
+- **モーダル管理**: サイドバー「モーダル状態」にカーソル位置のモーダル値
+  - サイドバーヘッダーの機械選択（QuickPick）で **FANUC / OKUMA** を切替可能
+  - ⌘⇧P → `G-code: 機械選択` でも切替
+
+設定（`settings.json`）:
+
+| 設定 | デフォルト | 説明 |
+|---|---|---|
+| `gcodeHelper.stickyHeader.enabled` | `true` | スティッキーヘッダー ON/OFF |
+| `gcodeHelper.stickyHeader.languages` | `["gcode"]` | ヘッダー対象言語 |
+| `gcodeHelper.showAllConsecutiveComments` | `false` | 連続コメントをまとめる / 全表示 |
+| `gcodeHelper.machine` | `"fanuc"` | モーダル認識の機械（`"fanuc"` / `"okuma"`） |
+
+### F5（開発ホスト）
+
+F5（実行とデバッグ → **Run Extension**）は拡張のロード・コマンド登録の確認に使えます。本拡張は G-code 言語定義を提供しないため、クリーンな開発ホストには G-code ファイルが認識されません。全機能の動作確認は上記の `.vsix` 導入が確実です。
 
 > F5 ワークフローの公式ドキュメント（ページ上部で日本語化可）: <https://code.visualstudio.com/api/get-started/your-first-extension>
 
